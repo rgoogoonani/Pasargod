@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import getpass
 import os
 import pathlib
 import re
@@ -14,6 +13,7 @@ PASARGOD_PATH = pathlib.Path(__file__).parent.resolve()
 ENV_FILE = PASARGOD_PATH / ".env"
 REQUIREMENTS_FILE = PASARGOD_PATH / "requirements.txt"
 MAIN_FILE = PASARGOD_PATH / "main.py"
+CLI_FILE = PASARGOD_PATH / "pasarguard-cli.py"
 PYTHON314 = pathlib.Path("/usr/bin/python3.14")
 SYSTEMD_DIRECTORY = pathlib.Path("/etc/systemd/system")
 
@@ -62,6 +62,9 @@ def check_required_files() -> None:
     if not REQUIREMENTS_FILE.is_file():
         missing.append("requirements.txt")
 
+    if not CLI_FILE.is_file():
+        missing.append("pasarguard-cli.py")
+
     if missing:
         error(
             "Put this installer in the Pasargod project directory. "
@@ -71,13 +74,6 @@ def check_required_files() -> None:
 
 def ask_value(title: str, default: str) -> str:
     value = input(f"{title} [default: {default}]: ").strip()
-    return value or default
-
-
-def ask_password(title: str, default: str) -> str:
-    value = getpass.getpass(
-        f"{title} [default: {default}; hidden input]: "
-    )
     return value or default
 
 
@@ -145,8 +141,6 @@ def collect_settings() -> tuple[str, dict[str, str]]:
         "UVICORN_HOST": ask_value("UVICORN_HOST", "0.0.0.0"),
         "UVICORN_PORT": ask_port(),
         "DISABLE_RECORDING_NODE_USAGE": ask_boolean(),
-        "SUDO_USERNAME": ask_value("SUDO_USERNAME", "root"),
-        "SUDO_PASSWORD": ask_password("SUDO_PASSWORD", "12345"),
     }
 
     return panel_name, settings
@@ -408,6 +402,19 @@ WantedBy=multi-user.target
     return service_name
 
 
+def generate_owner_temp_key() -> None:
+    step("Generating owner temporary access key")
+
+    run(
+        [
+            "python3.14",
+            "pasarguard-cli.py",
+            "generate-temp-key",
+        ],
+        cwd=PASARGOD_PATH,
+    )
+
+
 def main() -> None:
     require_root()
     check_required_files()
@@ -421,6 +428,7 @@ def main() -> None:
     install_requirements()
     run_database_migrations()
     service_name = create_systemd_service(panel_name)
+    generate_owner_temp_key()
 
     print("\n\033[1;32mInstallation completed successfully.\033[0m")
     print(f"Python: {PYTHON314}")
