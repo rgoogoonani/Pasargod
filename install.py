@@ -7,12 +7,14 @@ import re
 import shlex
 import subprocess
 import sys
+import urllib.request
 
 
 PASARGOD_PATH = pathlib.Path(__file__).parent.resolve()
 ENV_FILE = PASARGOD_PATH / ".env"
 REQUIREMENTS_FILE = PASARGOD_PATH / "requirements.txt"
 MAIN_FILE = PASARGOD_PATH / "main.py"
+PYTHON314 = pathlib.Path("/usr/bin/python3.14")
 SYSTEMD_DIRECTORY = pathlib.Path("/etc/systemd/system")
 
 
@@ -25,15 +27,19 @@ def error(message: str, exit_code: int = 1) -> None:
     raise SystemExit(exit_code)
 
 
-def run(command: list[str], cwd: pathlib.Path | None = None) -> None:
-    printable = " ".join(shlex.quote(part) for part in command)
+def run(
+    command: list[str],
+    cwd: pathlib.Path | None = None,
+    check: bool = True,
+) -> subprocess.CompletedProcess[str]:
+    printable = " ".join(shlex.quote(str(part)) for part in command)
     print(f"\033[0;33m$ {printable}\033[0m")
 
     try:
-        subprocess.run(
-            command,
+        return subprocess.run(
+            [str(part) for part in command],
             cwd=str(cwd) if cwd else None,
-            check=True,
+            check=check,
             text=True,
         )
     except FileNotFoundError:
@@ -58,7 +64,7 @@ def check_required_files() -> None:
 
     if missing:
         error(
-            "Put the installer inside the Pasargod project directory. "
+            "Put this installer in the Pasargod project directory. "
             f"Missing files: {', '.join(missing)}"
         )
 
@@ -161,8 +167,8 @@ def write_env(settings: dict[str, str]) -> None:
     os.chmod(ENV_FILE, 0o600)
 
 
-def install_dependencies() -> None:
-    step("Installing system dependencies")
+def install_system_dependencies() -> None:
+    step("Installing Python 3.14 and build dependencies")
 
     commands = [
         ["apt-get", "update"],
@@ -171,6 +177,7 @@ def install_dependencies() -> None:
             "install",
             "-y",
             "software-properties-common",
+            "ca-certificates",
         ],
         [
             "add-apt-repository",
@@ -198,18 +205,172 @@ def install_dependencies() -> None:
     for command in commands:
         run(command)
 
+    if not PYTHON314.is_file():
+        error("Python 3.14 installation failed: /usr/bin/python3.14 not found.")
 
-def install_requirements() -> None:
-    step("Installing requirements globally with pip3")
+    run([str(PYTHON314), "--version"])
+
+
+def set_python314_as_command_default() -> None:
+    step("Setting Python 3.14 as the default shell Python")
+
+    # /usr/bin/python3 remains untouched because Ubuntu system tools depend on it.
+    # /usr/local/bin normally comes before /usr/bin in PATH.
+    run(
+        [
+            "ln",
+            "-sfn",
+            str(PYTHON314),
+            "/usr/local/bin/python3",
+        ]
+    )
+    run(
+        [
+            "ln",
+            "-sfn",
+            str(PYTHON314),
+            "/usr/local/bin/python",
+        ]
+    )
+
+    pip_wrapper = """#!/bin/sh
+exec /usr/bin/python3.14 -m pip "$@"
+"""
+
+    for wrapper_path in (
+        pathlib.Path("/usr/local/bin/pip3"),
+        pathlib.Path("/usr/local/bin/pip"),
+    ):
+        wrapper_path.write_text(pip_wrapper, encoding="utf-8")
+        os.chmod(wrapper_path, 0o755)
+
+    # Verify the command defaults using the same PATH expected for normal shells.
+    command_env = os.environ.copy()
+    command_env["PATH"] = (
+        "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    )
+
+    for command in (
+        ["python3", "--version"],
+        ["python", "--version"],
+        ["pip3", "--version"],
+        ["pip", "--version"],
+    ):
+        printable = " ".join(shlex.quote(part) for part in command)
+        print(f"\033[0;33m$ {printable}\033[0m")
+        try:
+            subprocess.run(
+                command,
+                check=True,
+                text=True,
+                env=command_env,
+            )
+        except FileNotFoundError:
+            error(f"Command not found after configuring defaults: {command[0]}")
+        except subprocess.CalledProcessError as exc:
+            error(
+                f"Default command verification failed with exit code "
+                f"{exc.returncode}: {printable}"
+            )
+
+
+def prepare_python314_packaging_tools() -> None:
+    step("Preparing pip, setuptools and wheel for Python 3.14")
+
+    pip_check = run(
+        [str(PYTHON314), "-m", "pip", "--version"],
+        check=False,
+    )
+
+    if pip_check.returncode != 0:
+        print("pip is not available for Python 3.14; installing it with get-pip.py.")
+
+        get_pip_file = pathlib.Path("/tmp/get-pip.py")
+
+        try:
+            urllib.request.urlretrieve(
+                "https://bootstrap.pypa.io/get-pip.py",
+                get_pip_file,
+            )
+        except Exception as exc:
+            error(f"Could not download get-pip.py: {exc}")
+
+        run(
+            [
+                str(PYTHON314),
+                str(get_pip_file),
+                "--ignore-installed",
+                "--break-system-packages",
+            ]
+        )
+
+    # Install a clean, current packaging toolchain into /usr/local.
+    # --ignore-installed prevents pip from trying to uninstall Debian packages
+    # that do not contain pip RECORD metadata.
+    run(
+        [
+            str(PYTHON314),
+            "-m",
+            "pip",
+            "install",
+            "--ignore-installed",
+            "--break-system-packages",
+            "--no-cache-dir",
+            "pip",
+            "setuptools",
+            "wheel",
+            "build",
+        ]
+    )
+
+    run([str(PYTHON314), "-m", "pip", "--version"])
 
     run(
         [
-            "pip3",
+            str(PYTHON314),
+            "-c",
+            (
+                "import pip, setuptools, wheel; "
+                "print('pip:', pip.__version__, pip.__file__); "
+                "print('setuptools:', setuptools.__version__, setuptools.__file__); "
+                "print('wheel:', wheel.__version__, wheel.__file__)"
+            ),
+        ]
+    )
+
+
+def install_requirements() -> None:
+    step("Installing requirements with Python 3.14")
+
+    run(
+        [
+            "env",
+            "SETUPTOOLS_USE_DISTUTILS=local",
+            str(PYTHON314),
+            "-m",
+            "pip",
             "install",
             "-r",
             "requirements.txt",
             "--break-system-packages",
             "--ignore-installed",
+            "--use-pep517",
+            "--no-cache-dir",
+        ],
+        cwd=PASARGOD_PATH,
+    )
+
+
+def run_database_migrations() -> None:
+    step("Applying Alembic database migrations")
+
+    run(
+        [
+            "python3",
+            "-m",
+            "alembic",
+            "upgrade",
+            "head",
         ],
         cwd=PASARGOD_PATH,
     )
@@ -228,8 +389,11 @@ After=network-online.target
 
 [Service]
 WorkingDirectory={PASARGOD_PATH}
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStartPre=python3 -m alembic upgrade head
 ExecStart=python3 main.py
 Restart=always
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
@@ -251,11 +415,15 @@ def main() -> None:
     panel_name, settings = collect_settings()
 
     write_env(settings)
-    install_dependencies()
+    install_system_dependencies()
+    prepare_python314_packaging_tools()
+    set_python314_as_command_default()
     install_requirements()
+    run_database_migrations()
     service_name = create_systemd_service(panel_name)
 
     print("\n\033[1;32mInstallation completed successfully.\033[0m")
+    print(f"Python: {PYTHON314}")
     print(f"Project path: {PASARGOD_PATH}")
     print(f"Service: {service_name}")
     print(f"Status: systemctl status {service_name} --no-pager -l")
