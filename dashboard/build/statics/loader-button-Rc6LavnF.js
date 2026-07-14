@@ -1,0 +1,1 @@
+import{z as e}from"./radix-dialog-26FmQc0f.js";import{O as t,V as n,g as r}from"./index-40tqJskT.js";var i=e();function a({isLoading:e=!1,loadingText:a,children:o,className:s,disabled:c,...l}){return(0,i.jsxs)(r,{disabled:e||c,className:n(`relative`,s),...l,children:[e&&(0,i.jsx)(t,{className:`mr-2 h-4 w-4 animate-spin`}),e&&a?a:o]})}export{a as t};

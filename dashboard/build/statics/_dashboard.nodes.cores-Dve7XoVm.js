@@ -1,0 +1,1 @@
+import{z as e}from"./radix-dialog-26FmQc0f.js";import{i as t}from"./react-router-CnJ34EHS.js";var n=e();function r(){return(0,n.jsx)(`div`,{className:`flex min-h-0 min-w-0 flex-1 flex-col`,children:(0,n.jsx)(t,{})})}export{r as default};
