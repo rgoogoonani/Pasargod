@@ -13,8 +13,8 @@ from app.db import GetDB
 from app.db.crud.node import get_node_by_id, get_nodes
 from app.db.models import NodeStatus
 from app.models.node import NodeCoreUpdate, NodeGeoFilesUpdate, NodeListQuery
-from app.nats.rpc_service import BaseRpcService
 from app.nats.proto_utils import deserialize_proto_message, deserialize_proto_messages
+from app.nats.rpc_service import BaseRpcService
 from app.node import node_manager
 from app.operation import OperatorType
 from app.operation.node import NodeOperation
@@ -109,8 +109,8 @@ class NodeWorkerService(BaseRpcService):
         async with self._command_semaphore:
             try:
                 await self._dispatch_command(action, data)
-            except Exception as exc:
-                logger.error(f"Node command failed: {action} - {exc}", exc_info=True)
+            except Exception:
+                logger.exception(f"Node command failed: {action}")
 
     async def _run_rpc(self, msg, action: str | None, data: dict):
         async with self._rpc_semaphore:
@@ -154,7 +154,7 @@ class NodeWorkerService(BaseRpcService):
         if not node_id:
             return
         async with GetDB() as db:
-            db_node = await get_node_by_id(db, node_id)
+            db_node = await get_node_by_id(db, node_id, load_usage_logs=False)
         if db_node:
             await node_manager.update_node(db_node)
 
@@ -180,7 +180,7 @@ class NodeWorkerService(BaseRpcService):
         await core_manager._reload_from_cache()
         async with GetDB() as db:
             if node_ids:
-                nodes, _ = await get_nodes(db, query=NodeListQuery(ids=node_ids))
+                nodes, _ = await get_nodes(db, query=NodeListQuery(ids=node_ids), load_usage_logs=False)
             else:
                 nodes, _ = await get_nodes(
                     db,
@@ -188,6 +188,7 @@ class NodeWorkerService(BaseRpcService):
                         core_id=core_id,
                         status=[NodeStatus.connected, NodeStatus.connecting, NodeStatus.error],
                     ),
+                    load_usage_logs=False,
                 )
             await self._node_operator.connect_nodes_bulk(db, nodes)
 
@@ -214,7 +215,7 @@ class NodeWorkerService(BaseRpcService):
         stats = await self._node_operator.get_node_system_stats(node_id)
         return stats.model_dump()
 
-    async def _get_nodes_system_stats(self, data: dict = None) -> dict:
+    async def _get_nodes_system_stats(self, data: dict | None = None) -> dict:
         stats = await self._node_operator.get_nodes_system_stats()
         return {node_id: value.model_dump() if value else None for node_id, value in stats.items()}
 

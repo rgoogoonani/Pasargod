@@ -1,6 +1,7 @@
 import json
 from asyncio import Lock
 from copy import deepcopy
+from typing import ClassVar
 
 import nats
 from aiocache import cached
@@ -26,7 +27,7 @@ from config import runtime_settings
 class CoreManager:
     STATE_CACHE_KEY = "state"
     KV_BUCKET_NAME = "core_manager_state"
-    CORE_CLASSES = {
+    CORE_CLASSES: ClassVar[dict] = {
         CoreType.xray: XRayConfig,
         CoreType.wg: WireGuardConfig,
     }
@@ -52,22 +53,17 @@ class CoreManager:
     async def _snapshot_state(self) -> dict:
         async with self._lock:
             return {
-                "cores": deepcopy(self._cores),
-                "inbounds": deepcopy(self._inbounds),
-                "inbounds_by_tag": deepcopy(self._inbounds_by_tag),
+                "cores": {k: v.to_json() for k, v in self._cores.items()},
+                "inbounds": list(self._inbounds),
+                "inbounds_by_tag": dict(self._inbounds_by_tag),
             }
 
     async def _persist_state(self):
         if not self._kv:
             return
         state = await self._snapshot_state()
-
-        # Manually serialize cores to their JSON representation
-        serialized_state = deepcopy(state)
-        serialized_state["cores"] = {str(k): v.to_json() for k, v in state.get("cores", {}).items()}
-
-        # Serialize state using JSON
-        state_bytes = json.dumps(serialized_state).encode("utf-8")
+        # State is already serialized by _snapshot_state; just encode
+        state_bytes = json.dumps(state).encode("utf-8")
         try:
             await self._kv.put(self.STATE_CACHE_KEY, state_bytes)
         except Exception as exc:
@@ -94,8 +90,8 @@ class CoreManager:
             for core_id, core_data in cached_state.get("cores", {}).items():
                 try:
                     cores[int(core_id)] = self._core_from_json(core_data)
-                except Exception:
-                    self._logger.warning(f"Failed to reconstruct core {core_id} from JSON")
+                except Exception as exc:
+                    self._logger.warning(f"Failed to reconstruct core {core_id} from JSON: {exc}")
                     continue
 
             async with self._lock:
@@ -210,12 +206,23 @@ class CoreManager:
         core_configs, _ = await get_core_configs(db, CoreListQuery())
         cores: dict[int, AbstractCore] = {}
         for config in core_configs:
-            core_config = self.validate_core(
-                config.config,
-                config.exclude_inbound_tags,
-                config.fallbacks_inbound_tags,
-                config.type,
-            )
+            try:
+                core_config = self.validate_core(
+                    config.config,
+                    config.exclude_inbound_tags,
+                    config.fallbacks_inbound_tags,
+                    config.type,
+                )
+            except Exception as exc:
+                # Broken DB cores must not take down the process (restart loop).
+                self._logger.error(
+                    "Skipping broken core id=%s name=%r type=%s: %s",
+                    config.id,
+                    getattr(config, "name", None),
+                    config.type,
+                    exc,
+                )
+                continue
             cores[config.id] = core_config
 
         async with self._lock:
@@ -238,12 +245,21 @@ class CoreManager:
 
     async def _update_core_local(self, db_core_config: CoreConfig, core_config: AbstractCore | None = None):
         if core_config is None:
-            core_config = self.validate_core(
-                db_core_config.config,
-                db_core_config.exclude_inbound_tags,
-                db_core_config.fallbacks_inbound_tags,
-                db_core_config.type,
-            )
+            try:
+                core_config = self.validate_core(
+                    db_core_config.config,
+                    db_core_config.exclude_inbound_tags,
+                    db_core_config.fallbacks_inbound_tags,
+                    db_core_config.type,
+                )
+            except Exception as exc:
+                self._logger.error(
+                    "Skipping broken core id=%s type=%s: %s",
+                    getattr(db_core_config, "id", None),
+                    getattr(db_core_config, "type", None),
+                    exc,
+                )
+                return
 
         async with self._lock:
             self._cores.update({db_core_config.id: core_config})
@@ -298,14 +314,13 @@ class CoreManager:
     async def get_cores(self, core_ids: list[int] | set[int] | None = None) -> dict[int, AbstractCore]:
         async with self._lock:
             if core_ids is None:
-                return deepcopy(self._cores)
-
+                return {core_id: deepcopy(core) for core_id, core in self._cores.items()}
             return {core_id: deepcopy(core) for core_id, core in self._cores.items() if core_id in core_ids}
 
     @cached()
     async def get_inbounds(self) -> list[str]:
         async with self._lock:
-            return deepcopy(self._inbounds)
+            return list(self._inbounds)
 
     @cached()
     async def get_inbounds_by_tag(self) -> dict:

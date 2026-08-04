@@ -4,14 +4,13 @@ from PasarGuardNodeBridge import Health, NodeAPIError, PasarGuardNode
 
 from app import notification, on_shutdown, on_startup, scheduler
 from app.db import GetDB
+from app.db.crud.node import get_limited_nodes, get_nodes
 from app.db.models import Node, NodeStatus
 from app.models.node import NodeListQuery, NodeNotification
 from app.node import node_manager
 from app.operation import OperatorType
-from app.db.crud.node import get_limited_nodes, get_nodes
-from app.utils.logger import get_logger
 from app.operation.node import NodeOperation
-
+from app.utils.logger import get_logger
 from config import feature_settings, job_settings, runtime_settings
 
 node_operator = NodeOperation(operator_type=OperatorType.SYSTEM)
@@ -62,22 +61,18 @@ async def verify_node_backend_health(node: PasarGuardNode, node_name: str) -> tu
             return Health.BROKEN, e.code, e.detail
         except Exception as e_set_health:
             error_type_set = type(e_set_health).__name__
-            logger.error(
-                f"[{node_name}] Failed to set health to BROKEN | Error: {error_type_set} - {str(e_set_health)}"
-            )
+            logger.error(f"[{node_name}] Failed to set health to BROKEN | Error: {error_type_set} - {e_set_health!s}")
             return current_health, e.code, e.detail
     except Exception as e:
         error_type = type(e).__name__
-        error_message = f"{error_type}: {str(e)}"
+        error_message = f"{error_type}: {e!s}"
         logger.error(f"[{node_name}] Health check failed, setting health to BROKEN | Error: {error_message}")
         try:
             await node.set_health(Health.BROKEN)
             return Health.BROKEN, None, error_message
         except Exception as e_set_health:
             error_type_set = type(e_set_health).__name__
-            logger.error(
-                f"[{node_name}] Failed to set health to BROKEN | Error: {error_type_set} - {str(e_set_health)}"
-            )
+            logger.error(f"[{node_name}] Failed to set health to BROKEN | Error: {error_type_set} - {e_set_health!s}")
             return current_health, None, error_message
 
 
@@ -107,7 +102,7 @@ async def process_node_health_check(db_node: Node, node: PasarGuardNode):
 
         try:
             health, error_code, error_message = await verify_node_backend_health(node, db_node.name)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # Record timeout error in database but don't reconnect
             logger.warning(f"[{db_node.name}] Health check timed out")
             async with GetDB() as db:
@@ -159,13 +154,25 @@ async def process_node_health_check(db_node: Node, node: PasarGuardNode):
             async with GetDB() as db:
                 logger.info(f"Node '{db_node.name}' have been recovered")
                 node_version, core_version = await node.get_versions()
+                # Connection restored without a hard reset. Suppress the default
+                # connect notification and send a distinct "recovered" one instead,
+                # so a self-recovery is visibly different from a full reconnect.
                 await NodeOperation._update_single_node_status(
                     db,
                     db_node.id,
                     NodeStatus.connected,
                     xray_version=core_version,
                     node_version=node_version,
+                    send_notification=False,
                 )
+            await notification.recovered_node(
+                NodeNotification(
+                    id=db_node.id,
+                    name=db_node.name,
+                    xray_version=core_version,
+                    node_version=node_version,
+                )
+            )
             return
 
 
@@ -202,7 +209,7 @@ async def node_health_check():
     if not runtime_settings.role.runs_node:
         return
     async with GetDB() as db:
-        db_nodes, _ = await get_nodes(db=db, query=NodeListQuery(status=ACTIVE_NODE_STATUSES))
+        db_nodes, _ = await get_nodes(db=db, query=NodeListQuery(status=ACTIVE_NODE_STATUSES), load_usage_logs=False)
 
     dict_nodes = await node_manager.get_nodes()
     check_tasks = [process_node_health_check(db_node, dict_nodes.get(db_node.id)) for db_node in db_nodes]
@@ -217,7 +224,7 @@ async def initialize_nodes():
     logger.info("Starting nodes' cores...")
 
     async with GetDB() as db:
-        db_nodes, _ = await get_nodes(db=db, query=NodeListQuery(status=ACTIVE_NODE_STATUSES))
+        db_nodes, _ = await get_nodes(db=db, query=NodeListQuery(status=ACTIVE_NODE_STATUSES), load_usage_logs=False)
 
         if not db_nodes:
             logger.warning("Attention: You have no node, you need to have at least one node")

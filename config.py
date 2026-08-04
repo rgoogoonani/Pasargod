@@ -88,6 +88,8 @@ class NatsSettings(EnvSettings):
     node_log_subject: str = Field(default="pasarguard.node.logs", validation_alias="NATS_NODE_LOG_SUBJECT")
     node_rpc_timeout: float = Field(default=30.0, validation_alias="NATS_NODE_RPC_TIMEOUT")
     scheduler_rpc_timeout: float = Field(default=5.0, validation_alias="NATS_SCHEDULER_RPC_TIMEOUT")
+    node_command_max_payload_bytes: int = Field(default=900000, validation_alias="NATS_NODE_COMMAND_MAX_PAYLOAD_BYTES")
+    node_update_users_batch_size: int = Field(default=100, validation_alias="NATS_NODE_UPDATE_USERS_BATCH_SIZE")
     core_pubsub_channel: str = Field(default="core_hosts_updates", validation_alias="CORE_PUBSUB_CHANNEL")
     host_pubsub_channel: str = Field(default="host_manager_updates", validation_alias="HOST_PUBSUB_CHANNEL")
     telegram_kv_bucket: str = Field(default="pasarguard_telegram", validation_alias="NATS_TELEGRAM_KV_BUCKET")
@@ -162,7 +164,7 @@ class AuthSettings(EnvSettings):
     sudoers: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def build_sudoers(self) -> "AuthSettings":
+    def build_sudoers(self) -> AuthSettings:
         if self.sudo_username and self.sudo_password and not self.sudoers:
             self.sudoers[self.sudo_username] = self.sudo_password
         return self
@@ -185,7 +187,7 @@ class JobSettings(EnvSettings):
     review_admin_limits_interval: int = Field(default=10, validation_alias="JOB_REVIEW_ADMIN_LIMITS_INTERVAL")
     send_notifications_interval: int = Field(default=30, validation_alias="JOB_SEND_NOTIFICATIONS_INTERVAL")
     gather_nodes_stats_interval: int = Field(default=25, validation_alias="JOB_GATHER_NODES_STATS_INTERVAL")
-    remove_old_inbounds_interval: int = Field(default=3600, validation_alias="JOB_REMOVE_OLD_INBOUNDS_INTERVAL")
+    remove_old_inbounds_interval: int = Field(default=600, validation_alias="JOB_REMOVE_OLD_INBOUNDS_INTERVAL")
     remove_expired_users_interval: int = Field(default=3600, validation_alias="JOB_REMOVE_EXPIRED_USERS_INTERVAL")
     reset_user_data_usage_interval: int = Field(default=600, validation_alias="JOB_RESET_USER_DATA_USAGE_INTERVAL")
     reset_node_usage_interval: int = Field(default=60, validation_alias="JOB_RESET_NODE_USAGE_INTERVAL")
@@ -197,12 +199,6 @@ class JobSettings(EnvSettings):
 
 class FeatureSettings(EnvSettings):
     stop_nodes_on_shutdown: bool = Field(default=True, validation_alias="STOP_NODES_ON_SHUTDOWN")
-
-
-class WireGuardSettings(EnvSettings):
-    enabled: bool = Field(default=True, validation_alias="WIREGUARD_ENABLED")
-    global_pool: str = Field(default="10.0.0.0/8", validation_alias="WIREGUARD_GLOBAL_POOL")
-    reserved: str = Field(default="10.0.0.0/31", validation_alias="WIREGUARD_RESERVED")
 
 
 database_settings = DatabaseSettings()
@@ -220,7 +216,6 @@ auth_settings = AuthSettings()
 usage_settings = UsageSettings()
 job_settings = JobSettings()
 feature_settings = FeatureSettings()
-wireguard_settings = WireGuardSettings()
 
 if not database_settings.is_postgresql:
     usage_settings.enable_recording_nodes_stats = False

@@ -248,7 +248,6 @@ class ClashConfiguration(BaseSubscription):
             "reality-opts": {
                 "public-key": tls_settings.get("publicKey"),
                 "short-id": tls_settings.get("shortId") or "",
-                "support-x25519mlkem768": bool(tls_settings.get("mldsa65Verify")),
             }
             if security == "reality" and tls_settings.get("publicKey")
             else None,
@@ -310,10 +309,10 @@ class ClashConfiguration(BaseSubscription):
             node["client-fingerprint"] = tls_config.fingerprint
 
         if tls_config.tls == "reality" and tls_config.reality_public_key:
+            # Do not map mldsa65Verify → support-x25519mlkem768; those are different PQ features.
             node["reality-opts"] = {
                 "public-key": tls_config.reality_public_key,
                 "short-id": tls_config.reality_short_id or "",
-                "support-x25519mlkem768": bool(tls_config.mldsa65_verify),
             }
 
     @staticmethod
@@ -381,7 +380,7 @@ class ClashConfiguration(BaseSubscription):
         node["tls"] = True
         sni = tls_config.sni if isinstance(tls_config.sni, str) else ""
 
-        if protocol == "trojan":
+        if protocol in ("trojan", "hysteria"):
             node["sni"] = sni
         else:
             node["servername"] = sni
@@ -427,9 +426,7 @@ class ClashConfiguration(BaseSubscription):
         # Build transport config
         if network == "ws":
             net_opts = handler(inbound.transport_config, path, is_httpupgrade, random_user_agent)
-        elif network == "http":
-            net_opts = handler(inbound.transport_config, path, random_user_agent)
-        elif network == "xhttp":
+        elif network == "http" or network == "xhttp":
             net_opts = handler(inbound.transport_config, path, random_user_agent)
         else:
             net_opts = handler(inbound.transport_config, path)
@@ -616,10 +613,10 @@ class ClashMetaConfiguration(ClashConfiguration):
 
         # Add Reality opts
         if tls_config.tls == "reality" and tls_config.reality_public_key:
+            # Do not map mldsa65Verify → support-x25519mlkem768; those are different PQ features.
             node["reality-opts"] = {
                 "public-key": tls_config.reality_public_key,
                 "short-id": tls_config.reality_short_id or "",
-                "support-x25519mlkem768": bool(tls_config.mldsa65_verify),
             }
 
     def _build_vless(self, remark: str, address: str, inbound: SubscriptionInboundData, settings: dict) -> dict:

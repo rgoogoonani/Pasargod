@@ -1,11 +1,12 @@
 import asyncio
-from typing import Annotated, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from PasarGuardNodeBridge import NodeAPIError
 from sse_starlette.sse import EventSourceResponse
 
-from app.db import AsyncSession, get_db
+from app.db import AsyncSession, GetDB, get_db
 from app.db.models import NodeStatus
 from app.models.admin import AdminDetails
 from app.models.node import (
@@ -45,7 +46,7 @@ from app.utils import responses
 from app.utils.logger import get_logger
 from config import runtime_settings
 
-from .authentication import require_permission
+from .authentication import oauth2_scheme, require_permission, require_permission_for_request
 from .dependencies import (
     get_node_clear_usage_query,
     get_node_list_query,
@@ -62,7 +63,7 @@ router = APIRouter(tags=["Node"], prefix="/api/node", responses={401: responses.
 async def _node_logs_local(node_id: int, request: Request) -> EventSourceResponse:
     context_manager = await node_operator.get_logs(node_id=node_id)
 
-    async def event_generator() -> AsyncGenerator[str, None]:
+    async def event_generator() -> AsyncGenerator[str]:
         try:
             async with context_manager() as log_queue:
                 while True:
@@ -84,7 +85,7 @@ async def _node_logs_local(node_id: int, request: Request) -> EventSourceRespons
 
 
 async def _node_logs_remote(node_id: int, request: Request) -> EventSourceResponse:
-    async def event_generator() -> AsyncGenerator[str, None]:
+    async def event_generator() -> AsyncGenerator[str]:
         sub = None
         stop_subject = None
         nc = await node_nats_client.get_client()
@@ -107,7 +108,7 @@ async def _node_logs_remote(node_id: int, request: Request) -> EventSourceRespon
                     break
                 try:
                     msg = await sub.next_msg(timeout=1)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     continue
                 yield msg.data.decode()
         except asyncio.CancelledError:
@@ -294,7 +295,7 @@ async def reconnect_node(
 @router.put("/{node_id}/sync")
 async def sync_node(
     node_id: int,
-    flush_users: bool = False,
+    flush_users: bool = True,
     db: AsyncSession = Depends(get_db),
     _: AdminDetails = Depends(require_permission("nodes", "update")),
 ):
@@ -313,10 +314,13 @@ async def remove_node(
 
 
 @router.get("/{node_id}/logs")
-async def node_logs(node_id: int, request: Request, _: AdminDetails = Depends(require_permission("nodes", "logs"))):
+async def node_logs(node_id: int, request: Request, token: str | None = Depends(oauth2_scheme)):
     """
     Stream logs for a specific node as Server-Sent Events.
     """
+    async with GetDB() as db:
+        await require_permission_for_request(request, db, token, "nodes", "logs")
+
     return await _node_logs_handler(node_id, request)
 
 

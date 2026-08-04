@@ -13,7 +13,7 @@ from app.core.manager import core_manager
 from app.db import GetDB
 from app.db.crud.host import get_host_by_id, get_hosts, upsert_inbounds
 from app.db.models import ProxyHostSecurity
-from app.models.host import BaseHost, TransportSettings, WireGuardHostOverrides
+from app.models.host import BaseHost, FinalMask, TransportSettings, WireGuardHostOverrides
 from app.models.subscription import (
     GRPCTransportConfig,
     KCPTransportConfig,
@@ -66,6 +66,14 @@ async def _prepare_subscription_inbound_data(
     network = inbound_config.get("network", "tcp")
     path = host.path or inbound_config.get("path", "")
 
+    final_mask_settings = host.final_mask_settings if host.final_mask_settings else inbound_config.get("finalmask")
+    finalmask_link = None
+    fms = final_mask_settings
+    if final_mask_settings:
+        if isinstance(final_mask_settings, FinalMask):
+            fms = final_mask_settings.model_dump(by_alias=True)
+        finalmask_link = json.dumps(fms, separators=(",", ":"))
+
     if protocol == "wireguard":
         wg_over: WireGuardHostOverrides | None = host.wireguard_overrides
         if wg_over is None:
@@ -106,6 +114,8 @@ async def _prepare_subscription_inbound_data(
             wireguard_dns=dns,
             fragment_settings=host.fragment_settings.model_dump() if host.fragment_settings else None,
             noise_settings=host.noise_settings.model_dump() if host.noise_settings else None,
+            finalmask=final_mask_settings,
+            finalmask_link=finalmask_link,
             priority=host.priority,
             status=list(host.status) if host.status else None,
             subscription_templates=host.subscription_templates.model_dump(exclude_none=True)
@@ -129,7 +139,9 @@ async def _prepare_subscription_inbound_data(
     if tls_value is None:
         tls_value = inbound_config.get("tls", "none")
 
-    pinned_peer_cert_sha256 = host.pinned_peer_cert_sha256
+    pinned_peer_cert_sha256 = (
+        host.pinned_peer_cert_sha256 if host.pinned_peer_cert_sha256 else inbound_config.get("pinnedPeerCertSha256", "")
+    )
     verify_peer_cert_by_name = _string_list(host.verify_peer_cert_by_name) if host.verify_peer_cert_by_name else []
     ech_query_strategy = host.ech_query_strategy or inbound_config.get("echForceQuery")
     alpn_list = [alpn.value for alpn in host.alpn] if host.alpn else inbound_config.get("alpn", [])
@@ -186,9 +198,6 @@ async def _prepare_subscription_inbound_data(
     inbound_flow = inbound_config.get("flow", "")
     if inbound_flow == "none":
         inbound_flow = ""
-
-    finalmask = inbound_config.get("finalmask")
-    finalmask_link = json.dumps(finalmask, separators=(",", ":")) if finalmask else None
 
     # Network comes from inbound, NOT from checking which transport exists on host!
     # Host can have ALL transport configs, inbound determines which one is used
@@ -260,6 +269,16 @@ async def _prepare_subscription_inbound_data(
                 else inbound_config.get("session_placement")
             ),
             session_key=xs.session_key if xs and xs.session_key is not None else inbound_config.get("session_key"),
+            session_id_table=(
+                xs.session_id_table
+                if xs and xs.session_id_table is not None
+                else inbound_config.get("session_id_table")
+            ),
+            session_id_length=(
+                xs.session_id_length
+                if xs and xs.session_id_length is not None
+                else inbound_config.get("session_id_length")
+            ),
             seq_placement=(
                 xs.seq_placement if xs and xs.seq_placement is not None else inbound_config.get("seq_placement")
             ),
@@ -388,7 +407,7 @@ async def _prepare_subscription_inbound_data(
         use_sni_as_host=host.use_sni_as_host,
         fragment_settings=host.fragment_settings.model_dump() if host.fragment_settings else None,
         noise_settings=host.noise_settings.model_dump() if host.noise_settings else None,
-        finalmask=finalmask,
+        finalmask=final_mask_settings,
         finalmask_link=finalmask_link,
         priority=host.priority,
         status=list(host.status) if host.status else None,
@@ -420,7 +439,7 @@ class HostManager:
 
     async def _snapshot_state(self) -> dict[int, dict]:
         async with self._lock:
-            return deepcopy(self._hosts)
+            return dict(self._hosts)
 
     async def _persist_state(self):
         if not self._kv:
