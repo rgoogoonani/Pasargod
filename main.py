@@ -138,7 +138,7 @@ Use the following command:
 Then, navigate to {click.style(f"http://{ip}:{server_settings.port}", bold=True)} on your computer.
             """)
 
-            bind_args["host"] = ip
+            bind_args["host"] = server_settings.host
             bind_args["port"] = server_settings.port
 
     if runtime_settings.debug:
