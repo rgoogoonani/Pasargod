@@ -3,7 +3,7 @@
  * Do not edit manually.
  * PasarGuardAPI
  * Unified GUI Censorship Resistant Solution
- * OpenAPI spec version: 5.2.1
+ * OpenAPI spec version: 5.3.0
  */
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
@@ -139,6 +139,7 @@ export type GetUsersParams = {
   admin?: string[] | null
   admin_ids?: number[] | null
   group?: number[] | null
+  no_group?: boolean
   search?: string | null
   status?: UserStatus | UserStatus[] | null
   sort?: string | null
@@ -391,8 +392,6 @@ export type GetAdminsParams = {
 
 export type Health200 = { [key: string]: unknown }
 
-export type XrayNoiseSettingsRandRange = string | null
-
 export type XrayNoiseSettingsRand = number | string | null
 
 export type XrayNoiseSettingsDelay = string | number | null
@@ -407,7 +406,6 @@ export interface XrayNoiseSettings {
   /** @pattern ip|ipv4|ipv6 */
   apply_to?: string
   rand?: XrayNoiseSettingsRand
-  randRange?: XrayNoiseSettingsRandRange
   [key: string]: unknown
 }
 
@@ -684,6 +682,14 @@ export type UsersPermissionsResetUsageAnyOf = { [key: string]: PermissionScope |
 
 export type UsersPermissionsResetUsage = boolean | UsersPermissionsResetUsageAnyOf | null
 
+export type UsersPermissionsDeleteAnyOf = { [key: string]: PermissionScope | number }
+
+export type UsersPermissionsDelete = boolean | UsersPermissionsDeleteAnyOf | null
+
+export type UsersPermissionsUpdateAnyOf = { [key: string]: PermissionScope | number }
+
+export type UsersPermissionsUpdate = boolean | UsersPermissionsUpdateAnyOf | null
+
 export interface UsersPermissions {
   create?: UsersPermissionsCreate
   read?: UsersPermissionsRead
@@ -695,14 +701,6 @@ export interface UsersPermissions {
   set_owner?: UsersPermissionsSetOwner
   activate_next_plan?: UsersPermissionsActivateNextPlan
 }
-
-export type UsersPermissionsDeleteAnyOf = { [key: string]: PermissionScope | number }
-
-export type UsersPermissionsDelete = boolean | UsersPermissionsDeleteAnyOf | null
-
-export type UsersPermissionsUpdateAnyOf = { [key: string]: PermissionScope | number }
-
-export type UsersPermissionsUpdate = boolean | UsersPermissionsUpdateAnyOf | null
 
 export type UsersPermissionsReadSimpleAnyOf = { [key: string]: PermissionScope | number }
 
@@ -1084,13 +1082,6 @@ export interface UserModify {
   status?: UserModifyStatus
 }
 
-/**
- * User IP lists for all nodes
- */
-export interface UserIPListAll {
-  nodes: UserIPListAllNodes
-}
-
 export type UserIPListIps = { [key: string]: number }
 
 /**
@@ -1101,6 +1092,13 @@ export interface UserIPList {
 }
 
 export type UserIPListAllNodes = { [key: string]: UserIPList | null }
+
+/**
+ * User IP lists for all nodes
+ */
+export interface UserIPListAll {
+  nodes: UserIPListAllNodes
+}
 
 export type UserHWIDResponseDeviceModel = string | null
 
@@ -1508,12 +1506,6 @@ export type SettingsPermissionsUpdateAnyOf = { [key: string]: PermissionScope | 
 
 export type SettingsPermissionsUpdate = boolean | SettingsPermissionsUpdateAnyOf | null
 
-export interface SettingsPermissions {
-  read?: SettingsPermissionsRead
-  read_general?: SettingsPermissionsReadGeneral
-  update?: SettingsPermissionsUpdate
-}
-
 export type SettingsPermissionsReadGeneralAnyOf = { [key: string]: PermissionScope | number }
 
 export type SettingsPermissionsReadGeneral = boolean | SettingsPermissionsReadGeneralAnyOf | null
@@ -1521,6 +1513,12 @@ export type SettingsPermissionsReadGeneral = boolean | SettingsPermissionsReadGe
 export type SettingsPermissionsReadAnyOf = { [key: string]: PermissionScope | number }
 
 export type SettingsPermissionsRead = boolean | SettingsPermissionsReadAnyOf | null
+
+export interface SettingsPermissions {
+  read?: SettingsPermissionsRead
+  read_general?: SettingsPermissionsReadGeneral
+  update?: SettingsPermissionsUpdate
+}
 
 export type RunMethod = (typeof RunMethod)[keyof typeof RunMethod]
 
@@ -2087,7 +2085,7 @@ export interface NodeResponse {
   address: string
   port?: number
   api_port?: number
-  /** */
+  /** @minimum 0 */
   usage_coefficient?: number
   connection_type: NodeConnectionType
   server_ca: string
@@ -2218,7 +2216,7 @@ export interface NodeCreate {
   address: string
   port?: number
   api_port?: number
-  /** */
+  /** @minimum 0 */
   usage_coefficient?: number
   connection_type: NodeConnectionType
   server_ca: string
@@ -2450,6 +2448,11 @@ export interface HTTPException {
   detail: string
 }
 
+export interface GroupsResponse {
+  groups: GroupResponse[]
+  total: number
+}
+
 /**
  * Lightweight group model with only id and name for performance.
  */
@@ -2478,11 +2481,6 @@ export interface GroupResponse {
   is_disabled?: boolean
   id: number
   total_users?: number
-}
-
-export interface GroupsResponse {
-  groups: GroupResponse[]
-  total: number
 }
 
 export type GroupModifyInboundTags = string[] | null
@@ -2625,13 +2623,26 @@ export const FinalMaskUdpType = {
   'mkcp-aes128gcm': 'mkcp-aes128gcm',
 } as const
 
+export type FinalMaskUdpLayerSettingsAnyOf = { [key: string]: unknown }
+
+export type FinalMaskUdpLayerSettings =
+  | FinalMaskUdpHeaderCustomSettings
+  | FinalMaskPasswordSettings
+  | FinalMaskSudokuSettings
+  | FinalMaskDomainSettings
+  | FinalMaskXdnsSettings
+  | FinalMaskXicmpSettings
+  | FinalMaskNoiseSettings
+  | FinalMaskSalamanderSettings
+  | FinalMaskRealmSettings
+  | FinalMaskMkcpLegacySettings
+  | FinalMaskUdpLayerSettingsAnyOf
+
 export interface FinalMaskUdpLayer {
   type: FinalMaskUdpType
   settings?: FinalMaskUdpLayerSettings
   [key: string]: unknown
 }
-
-export type FinalMaskUdpLayerSettingsAnyOf = { [key: string]: unknown }
 
 export type FinalMaskUdpHopInterval = string | number | null
 
@@ -2643,9 +2654,9 @@ export interface FinalMaskUdpHop {
   [key: string]: unknown
 }
 
-export type FinalMaskUdpHeaderCustomSettingsServer = XrayNoiseSettings[] | null
+export type FinalMaskUdpHeaderCustomSettingsServer = FinalMaskNoiseItem[] | null
 
-export type FinalMaskUdpHeaderCustomSettingsClient = XrayNoiseSettings[] | null
+export type FinalMaskUdpHeaderCustomSettingsClient = FinalMaskNoiseItem[] | null
 
 export interface FinalMaskUdpHeaderCustomSettings {
   client?: FinalMaskUdpHeaderCustomSettingsClient
@@ -2671,11 +2682,11 @@ export interface FinalMaskTcpLayer {
 
 export type FinalMaskTcpLayerSettingsAnyOf = { [key: string]: unknown }
 
-export type FinalMaskTcpHeaderCustomSettingsErrors = XrayNoiseSettings[][] | null
+export type FinalMaskTcpHeaderCustomSettingsErrors = FinalMaskNoiseItem[][] | null
 
-export type FinalMaskTcpHeaderCustomSettingsServers = XrayNoiseSettings[][] | null
+export type FinalMaskTcpHeaderCustomSettingsServers = FinalMaskNoiseItem[][] | null
 
-export type FinalMaskTcpHeaderCustomSettingsClients = XrayNoiseSettings[][] | null
+export type FinalMaskTcpHeaderCustomSettingsClients = FinalMaskNoiseItem[][] | null
 
 export interface FinalMaskTcpHeaderCustomSettings {
   clients?: FinalMaskTcpHeaderCustomSettingsClients
@@ -2717,19 +2728,6 @@ export interface FinalMaskSalamanderSettings {
   packetSize?: FinalMaskSalamanderSettingsPacketSize
   [key: string]: unknown
 }
-
-export type FinalMaskUdpLayerSettings =
-  | FinalMaskUdpHeaderCustomSettings
-  | FinalMaskPasswordSettings
-  | FinalMaskSudokuSettings
-  | FinalMaskDomainSettings
-  | FinalMaskXdnsSettings
-  | FinalMaskXicmpSettings
-  | FinalMaskNoiseSettings
-  | FinalMaskSalamanderSettings
-  | FinalMaskRealmSettings
-  | FinalMaskMkcpLegacySettings
-  | FinalMaskUdpLayerSettingsAnyOf
 
 export type FinalMaskRealmSettingsTlsConfigAnyOf = { [key: string]: unknown }
 
@@ -2809,8 +2807,6 @@ export interface FinalMaskPasswordSettings {
   [key: string]: unknown
 }
 
-export type FinalMaskNoiseSettingsNoise = XrayNoiseSettings[] | null
-
 export type FinalMaskNoiseSettingsReset = string | number | null
 
 export interface FinalMaskNoiseSettings {
@@ -2818,6 +2814,30 @@ export interface FinalMaskNoiseSettings {
   noise?: FinalMaskNoiseSettingsNoise
   [key: string]: unknown
 }
+
+export type FinalMaskNoiseItemRandRange = string | null
+
+export type FinalMaskNoiseItemRand = number | string | null
+
+export type FinalMaskNoiseItemDelay = string | number | null
+
+export type FinalMaskNoiseItemPacket = string | number[] | null
+
+export type FinalMaskNoiseItemType = string | null
+
+/**
+ * Packet camouflage item used by FinalMask. Unlike Freedom noise, this has no apply_to.
+ */
+export interface FinalMaskNoiseItem {
+  type?: FinalMaskNoiseItemType
+  packet?: FinalMaskNoiseItemPacket
+  delay?: FinalMaskNoiseItemDelay
+  rand?: FinalMaskNoiseItemRand
+  randRange?: FinalMaskNoiseItemRandRange
+  [key: string]: unknown
+}
+
+export type FinalMaskNoiseSettingsNoise = FinalMaskNoiseItem[] | null
 
 export type FinalMaskMkcpLegacySettingsValue = string | null
 
@@ -2917,6 +2937,8 @@ export interface CreateUserFromTemplate {
   username: string
 }
 
+export type CreateHostCipherSuites = string | null
+
 export type CreateHostFinalMaskSettings = FinalMask | null
 
 export type CreateHostSubscriptionTemplates = SubscriptionTemplates | null
@@ -2994,6 +3016,7 @@ export interface CreateHost {
   wireguard_overrides?: CreateHostWireguardOverrides
   subscription_templates?: CreateHostSubscriptionTemplates
   final_mask_settings?: CreateHostFinalMaskSettings
+  cipher_suites?: CreateHostCipherSuites
 }
 
 /**
@@ -3170,6 +3193,10 @@ export type CRUDPermissionsReadSimpleAnyOf = { [key: string]: PermissionScope | 
 
 export type CRUDPermissionsReadSimple = boolean | CRUDPermissionsReadSimpleAnyOf | null
 
+export type CRUDPermissionsReadAnyOf = { [key: string]: PermissionScope | number }
+
+export type CRUDPermissionsRead = boolean | CRUDPermissionsReadAnyOf | null
+
 /**
  * Standard create/read/read_simple/update/delete permissions.
 Used directly by: groups, templates, client_templates, cores, admin_roles.
@@ -3182,10 +3209,6 @@ export interface CRUDPermissions {
   update?: CRUDPermissionsUpdate
   delete?: CRUDPermissionsDelete
 }
-
-export type CRUDPermissionsReadAnyOf = { [key: string]: PermissionScope | number }
-
-export type CRUDPermissionsRead = boolean | CRUDPermissionsReadAnyOf | null
 
 export type CRUDPermissionsCreateAnyOf = { [key: string]: PermissionScope | number }
 
@@ -3338,6 +3361,7 @@ export interface BulkGroupSelection {
 export interface BulkGroup {
   group_ids: number[]
   has_group_ids?: number[]
+  has_no_group?: boolean
   admins?: number[]
   users?: number[]
   dry_run?: boolean
@@ -3405,6 +3429,8 @@ export interface BaseNotificationEnable {
   modify?: boolean
   delete?: boolean
 }
+
+export type BaseHostCipherSuites = string | null
 
 export type BaseHostFinalMaskSettings = FinalMask | null
 
@@ -3483,6 +3509,7 @@ export interface BaseHost {
   wireguard_overrides?: BaseHostWireguardOverrides
   subscription_templates?: BaseHostSubscriptionTemplates
   final_mask_settings?: BaseHostFinalMaskSettings
+  cipher_suites?: BaseHostCipherSuites
 }
 
 export type ApplicationDescription = { [key: string]: string }

@@ -212,8 +212,8 @@ const NoiseItem = memo<NoiseItemProps>(({ index, form, onRemove, onDuplicate, t 
           </Button>
         </div>
       </div>
-      {/* Row 2: packet, delay, rand_range */}
-      <div className="grid grid-cols-3 gap-2 pl-7">
+      {/* Row 2: packet, delay */}
+      <div className="grid grid-cols-2 gap-2 pl-7">
         <FormField
           control={form.control}
           name={`noise_settings.xray.${index}.packet`}
@@ -233,18 +233,6 @@ const NoiseItem = memo<NoiseItemProps>(({ index, form, onRemove, onDuplicate, t 
             <FormItem>
               <FormControl>
                 <Input placeholder={t('hostsDialog.noise.delayPlaceholder')} {...field} value={field.value || ''} className="h-8" />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name={`noise_settings.xray.${index}.rand_range`}
-          render={({ field }) => (
-            <FormItem>
-              <FormControl>
-                <Input placeholder={t('hostsDialog.noise.randRangePlaceholder')} {...field} value={field.value || ''} className="h-8" />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -327,14 +315,13 @@ const HostModal: React.FC<HostModalProps> = ({ isDialogOpen, onOpenChange, onSub
   const selectedNoiseSettings = form.watch('noise_settings.xray')
   const selectedFragmentSettings = form.watch('fragment_settings.xray')
   const xPaddingObfsEnabled = form.watch('transport_settings.xhttp_settings.x_padding_obfs_mode') === true
+  const selectedFingerprint = form.watch('fingerprint')
   const infoPopoverSide = isMobile ? 'bottom' : dir === 'rtl' ? 'left' : 'right'
   const infoPopoverAlign = isMobile ? 'center' : 'start'
   const hasFragmentPopulated = Boolean(
     String(selectedFragmentSettings?.packets ?? '').trim() || String(selectedFragmentSettings?.length ?? '').trim() || String(selectedFragmentSettings?.interval ?? '').trim(),
   )
-  const hasNoisePopulated = (selectedNoiseSettings || []).some(
-    noise => noise && (String(noise.packet ?? '').trim() || String(noise.delay ?? '').trim() || String(noise.rand_range ?? '').trim()),
-  )
+  const hasNoisePopulated = (selectedNoiseSettings || []).some(noise => noise && (String(noise.packet ?? '').trim() || String(noise.delay ?? '').trim()))
   const showFragmentNoiseDeprecatedWarning = hasFragmentPopulated || hasNoisePopulated
 
   const renderCamouflageSection = () => {
@@ -596,7 +583,6 @@ const HostModal: React.FC<HostModalProps> = ({ isDialogOpen, onOpenChange, onSub
           packet: '',
           delay: '',
           apply_to: 'ip',
-          rand_range: '',
         },
       ],
       {
@@ -788,6 +774,7 @@ const HostModal: React.FC<HostModalProps> = ({ isDialogOpen, onOpenChange, onSub
     form.setValue('security', 'inbound_default', { shouldDirty: true })
     form.setValue('alpn', [], { shouldDirty: true })
     form.setValue('fingerprint', '', { shouldDirty: true })
+    form.setValue('cipher_suites', undefined, { shouldDirty: true })
     form.setValue('allowinsecure', false, { shouldDirty: true })
     form.setValue('random_user_agent', false, { shouldDirty: true })
     form.setValue('use_sni_as_host', false, { shouldDirty: true })
@@ -833,6 +820,7 @@ const HostModal: React.FC<HostModalProps> = ({ isDialogOpen, onOpenChange, onSub
         payload.security = 'inbound_default'
         payload.alpn = []
         payload.fingerprint = ''
+        payload.cipher_suites = undefined
         payload.allowinsecure = false
         payload.random_user_agent = false
         payload.use_sni_as_host = false
@@ -972,9 +960,7 @@ const HostModal: React.FC<HostModalProps> = ({ isDialogOpen, onOpenChange, onSub
                         value={parsedXrayTemplateId != null ? String(parsedXrayTemplateId) : XRAY_TEMPLATE_INBOUND_DEFAULT_VALUE}
                         onValueChange={value => {
                           if (value === XRAY_TEMPLATE_INBOUND_DEFAULT_VALUE) {
-                            // Clear the whole optional object so RHF does not keep `{ xray: undefined }`,
-                            // which can leave the UI stuck on the previous template id.
-                            form.setValue('subscription_templates', undefined, {
+                            form.setValue('subscription_templates.xray', null, {
                               shouldDirty: true,
                               shouldTouch: true,
                               shouldValidate: true,
@@ -1496,10 +1482,20 @@ const HostModal: React.FC<HostModalProps> = ({ isDialogOpen, onOpenChange, onSub
                               const infoContent = (
                                 <div className="space-y-1.5">
                                   <p className="text-muted-foreground text-[11px]">{t('hostsDialog.sni.info')}</p>
+                                  <p className="text-muted-foreground text-[11px]">{t('hostsDialog.sni.multiHost')}</p>
+                                  <p className="text-muted-foreground text-[11px]">{t('hostsDialog.sni.wildcard')}</p>
                                 </div>
                               )
 
-                              return <ArrayInput field={field} placeholder={t('hostsDialog.sniPlaceholder')} label={t('hostsDialog.sni')} infoContent={infoContent} />
+                              return (
+                                <ArrayInput
+                                  field={field}
+                                  placeholder={t('hostsDialog.sniPlaceholder')}
+                                  label={t('hostsDialog.sni')}
+                                  infoContent={infoContent}
+                                  customVariablesTrigger={<CustomVariablesPopover />}
+                                />
+                              )
                             }}
                           />
                         </div>
@@ -1597,6 +1593,22 @@ const HostModal: React.FC<HostModalProps> = ({ isDialogOpen, onOpenChange, onSub
                             )}
                           />
                         </div>
+
+                        {selectedFingerprint === 'unsafe' && (
+                          <FormField
+                            control={form.control}
+                            name="cipher_suites"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>{t('hostsDialog.cipherSuites', { defaultValue: 'Cipher Suites' })}</FormLabel>
+                                <FormControl>
+                                  <Input placeholder={t('hostsDialog.cipherSuitesPlaceholder', { defaultValue: 'e.g. TLS_AES_128_GCM_SHA256:TLS_CHACHA20_POLY1305_SHA256' })} {...field} value={field.value ?? ''} />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        )}
 
                         <FormField
                           control={form.control}
