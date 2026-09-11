@@ -204,7 +204,9 @@ def install_requirements() -> None:
 
     run(
         [
-            "pip3",
+            "python3.14",
+            "-m",
+            "pip",
             "install",
             "-r",
             "requirements.txt",
@@ -228,7 +230,7 @@ After=network-online.target
 
 [Service]
 WorkingDirectory={PASARGOD_PATH}
-ExecStart=python3 main.py
+ExecStart=python3.14 main.py
 Restart=always
 
 [Install]
